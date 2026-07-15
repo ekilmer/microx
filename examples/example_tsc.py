@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) 2019 Trail of Bits, Inc., all rights reserved.
 
-import microx
 import traceback
 
-if __name__ == "__main__":
+import microx
 
+if __name__ == "__main__":
     # Disassembly:
     # mov eax, 0x55555555
     # mov edx, eax
@@ -41,9 +41,7 @@ if __name__ == "__main__":
             edx = t.read_register("EDX", t.REG_HINT_GENERAL)
             tsc = t.read_register("TSC", t.REG_HINT_NONE)
             print(
-                "Emulating instruction at {:08x} (EAX={:08x}, EDX={:08x}, TSC={:016x})".format(
-                    pc, eax, edx, tsc
-                )
+                f"Emulating instruction at {pc:08x} (EAX={eax:08x}, EDX={edx:08x}, TSC={tsc:016x})"
             )
             p.execute(t, 1)
     except Exception as e:

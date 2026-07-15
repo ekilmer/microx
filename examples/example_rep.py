@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) 2019 Trail of Bits, Inc., all rights reserved.
 
-import microx
 import traceback
 
-if __name__ == "__main__":
+import microx
 
+if __name__ == "__main__":
     # Disassembly:
     # lea edi, [esp - 32]
     # mov eax, 0x41
@@ -53,9 +53,7 @@ if __name__ == "__main__":
             edi = t.read_register("EDI", t.REG_HINT_GENERAL)
             ecx = t.read_register("ECX", t.REG_HINT_GENERAL)
             print(
-                "Emulating instruction at {:08x} (EAX={:08x}, ESI={:08x}, EDI={:08x}, ECX={:08x})".format(
-                    pc, eax, esi, edi, ecx
-                )
+                f"Emulating instruction at {pc:08x} (EAX={eax:08x}, ESI={esi:08x}, EDI={edi:08x}, ECX={ecx:08x})"
             )
             p.execute(t, 1)
     except Exception as e:

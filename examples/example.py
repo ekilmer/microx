@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) 2019 Trail of Bits, Inc., all rights reserved.
 
-import microx
 import traceback
 
-if __name__ == "__main__":
+import microx
 
+if __name__ == "__main__":
     # 13 Disassembly:
     # 14 0:  55                      push   ebp
     # 15 1:  89 e5                   mov    ebp,esp
@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     code.store_bytes(
         0x1000,
-        b"\x55\x89\xE5\x51\x8B\x45\x08\x8A\x08\x88\x4D\xFF\x89\xEC\x5D\xC2\x00\x00",
+        b"\x55\x89\xe5\x51\x8b\x45\x08\x8a\x08\x88\x4d\xff\x89\xec\x5d\xc2\x00\x00",
     )
 
     m = microx.Memory(o, 32)
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     try:
         while True:
             pc = t.read_register("EIP", t.REG_HINT_PROGRAM_COUNTER)
-            print("Emulating instruction at {:08x}".format(pc))
+            print(f"Emulating instruction at {pc:08x}")
             p.execute(t, 1)
     except Exception as e:
         print(e)

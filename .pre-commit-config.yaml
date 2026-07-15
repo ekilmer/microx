@@ -1,0 +1,22 @@
+# Run with `prek run --all-files` (or `pre-commit`). Replaces the old
+# `make format` targets.
+exclude: '^third_party/'
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.0
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+        exclude: '^microx/backends/x86/XED\.h$'
+
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format

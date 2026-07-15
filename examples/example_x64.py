@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (c) 2019 Trail of Bits, Inc., all rights reserved.
 
-import microx
 import traceback
 
-if __name__ == "__main__":
+import microx
 
+if __name__ == "__main__":
     # Disassembly:
     # push   rbp
     # mov    rbp,rsp
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     try:
         while True:
             pc = t.read_register("RIP", t.REG_HINT_PROGRAM_COUNTER)
-            print("Emulating instruction at {:016x}".format(pc))
+            print(f"Emulating instruction at {pc:016x}")
             p.execute(t, 1)
     except Exception as e:
         print(e)

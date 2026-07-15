@@ -1,4 +1,5 @@
 import traceback
+
 import microx
 
 
@@ -12,7 +13,7 @@ def main():
     code.store_bytes(
         0x1050,
         # punpckhdq mm0, [eax]
-        b"\x0F\x6A\x00\xeb\x0e",
+        b"\x0f\x6a\x00\xeb\x0e",
     )
     heap.store_bytes(0x10900, b"\xab\x00\x12\x00\xab\xab\xab\xab")
 

@@ -1,11 +1,11 @@
-from flag_map import FlaggedMemoryMap, PolicyFlags
-import sys
 import copy
+
+from flag_map import FlaggedMemoryMap, PolicyFlags
 
 
 class PolicyMemoryMap(FlaggedMemoryMap):
     def __init__(self, ops, base, limit, access_flags, policy, mapname=None):
-        super(PolicyMemoryMap, self).__init__(ops, base, limit, access_flags, mapname)
+        super().__init__(ops, base, limit, access_flags, mapname)
         self._data = [0] * (limit - base)
         self._policy = policy
         self._access_map = {}

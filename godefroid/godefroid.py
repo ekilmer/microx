@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # Copyright (c) 2019 Trail of Bits, Inc., all rights reserved.
-import microx
-from microx_core import InstructionFetchError  # pylint: disable=no-name-in-module
-import traceback
-import logging
+import argparse
+import copy
+import os
 import sys
+import traceback
+from enum import Enum, auto
+
+import cle
 from flag_map import MemoryFlags
 from policies import DefaultMemoryPolicy, InputMemoryPolicy, InputType
 from policy_map import PolicyMemoryMap
-import argparse
-import os
-from enum import Enum, auto
-import cle
-import copy
+
+import microx
+from microx_core import InstructionFetchError  # pylint: disable=no-name-in-module
 
 
 class Icount(Enum):
@@ -20,7 +21,7 @@ class Icount(Enum):
     COUNTED = auto()
 
 
-class GodefroidRunner(object):
+class GodefroidRunner:
     def __init__(
         self,
         memory,
@@ -64,7 +65,6 @@ class GodefroidRunner(object):
 
         return_dict = {}
         for itercount in range(iterations):
-
             sys.stdout.write(f"[+] Attempting iteration {itercount}/{iterations}\n")
 
             # TODO(artem): This is really slow. Should be implemented as some kind of CoW semantics
@@ -95,7 +95,7 @@ class GodefroidRunner(object):
                         instruction_count += 1
             except InstructionFetchError as efe:
                 sys.stdout.write(
-                    f"[!] Could not fetch instruction at: {pc:08x}. Error msg: {repr(efe)}.\n"
+                    f"[!] Could not fetch instruction at: {pc:08x}. Error msg: {efe!r}.\n"
                 )
             except Exception as e:
                 print(e)
@@ -110,7 +110,7 @@ class GodefroidProcess(microx.Process):
     INPUT_SPACE_SIZE = 0x1080000
 
     def __init__(self, ops, memory, sp_value=None):
-        super(GodefroidProcess, self).__init__(ops, memory)
+        super().__init__(ops, memory)
 
         # NOTE(artem): Allows for user-specified input heaps
         if not memory.find_maps_by_name("[input_space]"):
@@ -118,7 +118,7 @@ class GodefroidProcess(microx.Process):
             input_base = memory.find_hole(input_size)
 
             sys.stdout.write(
-                f"[+] Mapping input space to: {input_base:08x} - {input_base+input_size:08x}\n"
+                f"[+] Mapping input space to: {input_base:08x} - {input_base + input_size:08x}\n"
             )
             input_space = PolicyMemoryMap(
                 self._ops,
@@ -165,7 +165,7 @@ class GodefroidProcess(microx.Process):
         self._policy = input_policy
 
     def compute_address(self, seg_name, base_addr, index, scale, disp, size, hint):
-        result = super(GodefroidProcess, self).compute_address(
+        result = super().compute_address(
             seg_name, base_addr, index, scale, disp, size, hint
         )
         assert isinstance(self._policy, InputMemoryPolicy)
@@ -211,7 +211,7 @@ class GodefroidProcess(microx.Process):
                 for page in range(page_start, page_end, 0x1000):
                     if not m.can_read(page):
                         sys.stdout.write(
-                            f"[+] Mapping page from 0x{page:x} to 0x{page+0x1000:x}. Flags: {flags}\n"
+                            f"[+] Mapping page from 0x{page:x} to 0x{page + 0x1000:x}. Flags: {flags}\n"
                         )
                         mem_map = PolicyMemoryMap(
                             o,
@@ -251,7 +251,7 @@ def default_example():
             "start": 0x1000,
             "size": 0x1000,
             "flags": MemoryFlags.Read | MemoryFlags.Execute,
-            "content": b"\x55\x89\xE5\x51\x8B\x45\x08\x8A\x08\x88\x4D\xFF\x89\xEC\x5D\xC2\x00\x00",
+            "content": b"\x55\x89\xe5\x51\x8b\x45\x08\x8a\x08\x88\x4d\xff\x89\xec\x5d\xc2\x00\x00",
         },
         {
             "name": "[stack]",
@@ -296,7 +296,6 @@ def load_sections_from_binary(loader, cle_binary):
     sections = []
 
     for section in cle_binary.sections:
-
         # Only care about in-memory sections
         if not section.occupies_memory:
             continue
@@ -348,7 +347,7 @@ def run_on_binary(binary, entry, icount_type, maxinst):
     try:
         loaded = cle.Loader(binary)
     except Exception as e:
-        sys.stdout.write(f"[!] Could not load binary [{binary}]. Reason: {str(e)}\n")
+        sys.stdout.write(f"[!] Could not load binary [{binary}]. Reason: {e!s}\n")
 
     if loaded is None:
         return None
@@ -365,7 +364,7 @@ def run_on_binary(binary, entry, icount_type, maxinst):
     if entry.startswith("0x"):
         ep = int(entry, base=16)
     # zero is technically a valid address, but warn about it
-    if int == type(ep):
+    if isinstance(ep, int):
         if ep == 0:
             sys.stdout.write(
                 "[-] WARNING: Entrypoint is zero! This could be intentional but maybe something is wrong\n"
@@ -412,7 +411,6 @@ def run_on_binary(binary, entry, icount_type, maxinst):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser()
     group_a = parser.add_mutually_exclusive_group()
     group_a.add_argument(
@@ -492,9 +490,9 @@ if __name__ == "__main__":
 
     if len(inputs) > 0:
         sys.stdout.write("[+] Found the following inputs:\n")
-        for (k, v) in inputs.items():
+        for k, v in inputs.items():
             input_size, input_type, input_data = v
-            sys.stdout.write(f"\t{k:08x} - {k+input_size:08x} [size: {input_size}]")
+            sys.stdout.write(f"\t{k:08x} - {k + input_size:08x} [size: {input_size}]")
             if InputType.POINTER == input_type:
                 sys.stdout.write(f" [POINTER TO: {input_data:08x}]")
             elif InputType.DATA == input_type:
@@ -511,7 +509,7 @@ if __name__ == "__main__":
 
     if len(outputs) > 0:
         sys.stdout.write("[+] Found the following outputs:\n")
-        for (k, v) in outputs.items():
-            sys.stdout.write(f"\t{k:08x} - {k+v:08x}\n")
+        for k, v in outputs.items():
+            sys.stdout.write(f"\t{k:08x} - {k + v:08x}\n")
     else:
         sys.stdout.write("[-] No outputs found\n")
