@@ -29,6 +29,7 @@ struct alignas(16) Data {
 enum class ExecutorStatus {
   kGood,
   kErrorNotInitialized,
+  kErrorUnsupportedArch,
   kErrorDecode,
   kErrorUnsupportedFeatures,
   kErrorUnsupportedCFI,
@@ -45,6 +46,15 @@ enum class ExecutorStatus {
   kErrorWriteMem,
   kErrorReadFPU,
   kErrorWriteFPU
+};
+
+// The instruction set architecture that an `Executor` micro-executes. A given
+// build of microx only supports its host architecture; requesting any other
+// yields `kErrorUnsupportedArch`.
+enum class Arch {
+  kX86,      // 32-bit x86.
+  kAMD64,    // 64-bit x86-64.
+  kAArch64,  // 64-bit ARM (A64).
 };
 
 enum class RegRequestHint {
@@ -343,9 +353,12 @@ union alignas(16) FPU final {
 
 static_assert(512 == sizeof(FPU), "Invalid structure packing of `FPU`.");
 
+class Backend;  // Internal, per-architecture implementation (see Backend.h).
+
 class Executor {
  public:
-  Executor(size_t addr_size_, bool has_avx_ = false, bool has_avx512_ = false);
+  Executor(Arch arch_, size_t addr_size_, bool has_avx_ = false,
+           bool has_avx512_ = false);
 
   virtual ~Executor(void);
 
@@ -353,36 +366,46 @@ class Executor {
 
   ExecutorStatus Execute(size_t max_num_executions = 1);
 
-  virtual uintptr_t ComputeAddress(const char *seg_name, uintptr_t base,
+  virtual uintptr_t ComputeAddress(const char* seg_name, uintptr_t base,
                                    uintptr_t index, uintptr_t scale,
                                    uintptr_t displacement, size_t size,
                                    MemRequestHint hint) const;
 
-  virtual bool ReadReg(const char *name, size_t size, RegRequestHint hint,
-                       Data &val) const = 0;
+  virtual bool ReadReg(const char* name, size_t size, RegRequestHint hint,
+                       Data& val) const = 0;
 
-  virtual bool WriteReg(const char *name, size_t size,
-                        const Data &val) const = 0;
+  virtual bool WriteReg(const char* name, size_t size,
+                        const Data& val) const = 0;
 
   virtual bool ReadMem(uintptr_t addr, size_t size, MemRequestHint hint,
-                       Data &val) const = 0;
+                       Data& val) const = 0;
 
-  virtual bool WriteMem(uintptr_t addr, size_t size, const Data &val) const = 0;
+  virtual bool WriteMem(uintptr_t addr, size_t size, const Data& val) const = 0;
 
-  virtual bool ReadFPU(FPU &val) const = 0;
+  // The FPU callbacks model the x86 x87/SSE FXSAVE image and are only invoked
+  // by the x86 backend. Other architectures (e.g. AArch64) route their vector
+  // and floating-point state through `ReadReg`/`WriteReg` as named registers,
+  // so these default to no-ops.
+  virtual bool ReadFPU(FPU& val) const { return true; }
 
-  virtual bool WriteFPU(const FPU &val) const = 0;
+  virtual bool WriteFPU(const FPU& val) const { return true; }
 
+  const Arch arch;
   const size_t addr_size;
   const bool has_avx;
   const bool has_avx512;
 
  private:
   Executor(void) = delete;
-  Executor(const Executor &) = delete;
-  Executor(const Executor &&) = delete;
-  Executor &operator=(const Executor &) = delete;
-  Executor &operator=(const Executor &&) = delete;
+  Executor(const Executor&) = delete;
+  Executor(const Executor&&) = delete;
+  Executor& operator=(const Executor&) = delete;
+  Executor& operator=(const Executor&&) = delete;
+
+  // The per-architecture backend for this executor, or null if `arch` is not
+  // supported by this build (surfaced as `kErrorUnsupportedArch` on `Execute`).
+  Backend* backend;
+  ExecutorStatus create_status;
 };
 
 }  // namespace microx

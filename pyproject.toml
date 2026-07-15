@@ -1,0 +1,118 @@
+[build-system]
+requires = ["scikit-build-core>=1.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "microx"
+dynamic = ["version"]
+description = "Single-instruction micro-executor (x86, x86-64, AArch64)."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Peter Goodman", email = "peter@trailofbits.com" }]
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/lifting-bits/microx"
+
+# Local dev tooling. cibuildwheel/abi3audit are CI concerns (run via the
+# cibuildwheel GitHub Action) and intentionally kept out of the lock so the dev
+# group resolves across the full supported Python range (cibuildwheel needs
+# >=3.11 while microx supports >=3.10).
+[dependency-groups]
+dev = ["ruff>=0.15", "ty>=0.0.59"]
+
+# ---- build backend (scikit-build-core drives CMake) ----
+# IMPORTANT: build abi3 wheels with the *floor* interpreter (Python 3.10).
+# Building the limited-API extension with 3.12+ headers inlines refcount
+# operations that corrupt the heap on 3.10/3.11 runtimes. cibuildwheel's
+# `build = "cp310-*"` (below) does this in CI; for local builds run
+# `uv build --python 3.10` (or rely on the pinned .python-version).
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.26"                # Development.SABIModule needs FindPython 3.26+
+cmake.define.MICROX_PYTHON_BINDINGS = "ON"
+wheel.py-api = "cp310"                  # one cp310-abi3 wheel per platform
+build.targets = ["microx_core"]
+# The runtime package is the pure-Python layer + the compiled extension; keep
+# the C++ sources/headers out of the wheel.
+wheel.exclude = [
+  "microx/**/*.cpp",
+  "microx/**/*.h",
+  "microx/**/*.S",
+  "microx/**/CMakeLists.txt",
+  "microx/include/**",
+]
+
+[tool.scikit-build.wheel.packages]
+microx = "microx"
+
+# The VERSION file stays the single source of truth (scripts/release reads it).
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "VERSION"
+regex = '^(?P<value>\S+)'
+
+[tool.scikit-build.sdist]
+include = [
+  "VERSION",
+  "microx",
+  "microx_core.pyi",
+  "scripts",
+  "examples",
+  "README.md",
+  "LICENSE",
+]
+exclude = ["third_party", "godefroid", "build", "wheel", "dist"]
+
+# ---- lint / format / types ----
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = ["third_party"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ty.src]
+exclude = ["third_party", "godefroid"]
+
+[tool.ty.rules]
+# The pure-Python model layer intentionally overrides base methods with adapted
+# signatures (e.g. Process.execute wraps Executor.execute with a thread arg;
+# ArrayMemoryMap.store_* rename the value parameter). These are deliberate
+# duck-typed overrides, not errors.
+invalid-method-override = "ignore"
+
+# ---- wheels ----
+[tool.cibuildwheel]
+build = "cp310-*"                       # one abi3 wheel per platform
+skip = "*-musllinux*"
+build-frontend = "build[uv]"
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
+[tool.cibuildwheel.macos.environment]
+MACOSX_DEPLOYMENT_TARGET = "11.0"
+
+# x86-64 lanes need XED built via bootstrap.sh; arm64 fetches Capstone via CMake.
+[[tool.cibuildwheel.overrides]]
+select = "*-manylinux_x86_64"
+before-all = "PYTHON=/opt/python/cp310-cp310/bin/python {package}/scripts/bootstrap.sh"
+test-command = "python {package}/examples/example_x64.py && python {package}/examples/example.py"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+before-all = "{package}/scripts/bootstrap.sh"
+test-command = "python {package}/examples/example_x64.py && python {package}/examples/example.py"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-manylinux_aarch64"
+test-command = "python {package}/examples/example_arm64.py"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_arm64"
+test-command = "python {package}/examples/example_arm64.py"

@@ -6,10 +6,17 @@
 # The compiled extension is placed here when
 # microx is installed with `pip install -e .`
 /microx_core.*
+# ...but the hand-written type stub is a tracked source file.
+!/microx_core.pyi
 
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# uv / ruff
+/.venv/
+/.ruff_cache/
+/uv.lock.*
 
 .vscode/ipch/*
 .vscode/settings.json
