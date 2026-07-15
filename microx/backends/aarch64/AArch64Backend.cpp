@@ -59,6 +59,7 @@ static bool gUsesFp;  // Any V/FP register touched.
 // Memory operand staging.
 static bool gMemPresent = false;
 static bool gMemIsStore = false;
+static bool gMemIsLiteral = false;  // PC-relative literal load, emulated in SW.
 static uintptr_t gMemAddr = 0;
 static size_t gMemBytes = 0;
 // Writeback (pre/post-index) on the base register.
@@ -456,6 +457,7 @@ class AArch64Backend final : public Backend {
     gUsesFp = false;
     gMemPresent = false;
     gMemIsStore = false;
+    gMemIsLiteral = false;
     gMemWriteback = false;
     gMemBaseGpr = -1;
     gMemBaseIsSp = false;
@@ -641,6 +643,32 @@ class AArch64Backend final : public Backend {
     const cs_aarch64_op& op = a.operands[mem_op];
     const aarch64_op_mem& m = op.mem;
 
+    // A PC-relative literal load (e.g. `LDR Xt, label`) has no base register;
+    // Capstone reports the resolved absolute target in `disp`. It cannot run
+    // natively (the arena PC differs from the guest PC), so read the bytes here
+    // and let ComputeControlFlow write the destination register in software.
+    if (0 == m.base) {
+      gMemBytes = MemoryAccessBytes();
+      if (!gMemBytes || gMemBytes > sizeof(gMemBuf)) {
+        return ExecutorStatus::kErrorUnsupportedFeatures;
+      }
+      gMemAddr =
+          executor->ComputeAddress("", static_cast<uintptr_t>(m.disp), 0, 1, 0,
+                                   gMemBytes * 8, MemRequestHint::kReadOnly);
+      std::memset(gMemBuf, 0, sizeof(gMemBuf));
+      Data data;
+      std::memset(data.bytes, 0, sizeof(data.bytes));
+      if (!executor->ReadMem(gMemAddr, gMemBytes * 8, MemRequestHint::kReadOnly,
+                             data)) {
+        return ExecutorStatus::kErrorReadMem;
+      }
+      std::memcpy(gMemBuf, data.bytes, gMemBytes);
+      gMemPresent = true;
+      gMemIsStore = false;
+      gMemIsLiteral = true;
+      return ExecutorStatus::kGood;
+    }
+
     const Canon base = Canonicalize(m.base);
     uint64_t base_val = 0;
     if (Kind::kSp == base.kind) {
@@ -712,6 +740,14 @@ class AArch64Backend final : public Backend {
     next_pc = gPC + 4;
 
     if (IsNoOp()) {
+      return Action::kEmulated;
+    }
+
+    // A PC-relative literal load, staged by ReadMemory, cannot run in the arena
+    // (whose PC differs from the guest PC); complete it in software.
+    if (gMemIsLiteral) {
+      EmulateLiteralLoad();
+      status = ExecutorStatus::kGood;
       return Action::kEmulated;
     }
 
@@ -888,6 +924,38 @@ class AArch64Backend final : public Backend {
     }
   }
 
+  // Complete a PC-relative literal load (staged by ReadMemory) in software:
+  // copy the fetched bytes into the destination register with the correct width
+  // and sign-extension.
+  void EmulateLiteralLoad(void) {
+    const cs_aarch64& a = gInsn->detail->aarch64;
+    Canon rt{Kind::kOther, 0};
+    for (uint8_t i = 0; i < a.op_count; ++i) {
+      if (AARCH64_OP_REG == a.operands[i].type) {
+        rt = Canonicalize(a.operands[i].reg);
+        break;
+      }
+    }
+    const size_t nbytes = (gMemBytes && gMemBytes <= 16) ? gMemBytes : 0;
+    if (!nbytes) {
+      return;
+    }
+    if (Kind::kGpr == rt.kind) {
+      uint64_t v = 0;
+      std::memcpy(&v, gMemBuf, nbytes <= 8 ? nbytes : 8);
+      if (AARCH64_INS_LDRSW == gInsn->id) {
+        v = static_cast<uint64_t>(
+            static_cast<int64_t>(static_cast<int32_t>(v)));
+      }
+      gState.gpr[rt.idx] = v;
+      gModGpr[rt.idx] = true;
+    } else if (Kind::kVec == rt.kind) {
+      std::memset(&gState.vec[rt.idx][0], 0, 16);
+      std::memcpy(&gState.vec[rt.idx][0], gMemBuf, nbytes);
+      gModVec[rt.idx] = true;
+    }
+  }
+
   // Returns true if this instruction is a control-flow / PC-relative form that
   // was fully handled here; `status` is set to the resulting status.
   bool EmulateControlFlow(uintptr_t& next_pc, ExecutorStatus& status) {
@@ -996,37 +1064,6 @@ class AArch64Backend final : public Backend {
         break;
     }
 
-    // LDR (literal): a PC-relative load. Capstone gives the resolved target as
-    // an IMM/mem operand; stage the bytes and write the destination register.
-    if (AARCH64_INS_LDR == gInsn->id && gInsn->detail->writeback == false) {
-      bool has_mem = false;
-      for (uint8_t i = 0; i < a.op_count; ++i) {
-        if (AARCH64_OP_MEM == a.operands[i].type) has_mem = true;
-      }
-      if (!has_mem) {
-        // Literal form: operands are Rt and an IMM (absolute address).
-        int rt = -1;
-        uint64_t addr = 0;
-        for (uint8_t i = 0; i < a.op_count; ++i) {
-          if (AARCH64_OP_REG == a.operands[i].type && rt < 0) {
-            const Canon c = Canonicalize(a.operands[i].reg);
-            if (Kind::kGpr == c.kind) rt = c.idx;
-          } else if (AARCH64_OP_IMM == a.operands[i].type) {
-            addr = static_cast<uint64_t>(a.operands[i].imm);
-          }
-        }
-        if (rt >= 0) {
-          Data d;
-          std::memset(d.bytes, 0, sizeof(d.bytes));
-          // Not currently wired through ComputeAddress; treat as unsupported
-          // rather than risk an incorrect read.
-          status = ExecutorStatus::kErrorUnsupportedFeatures;
-          (void)addr;
-          (void)d;
-          return true;
-        }
-      }
-    }
     return false;
   }
 
