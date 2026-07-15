@@ -25,13 +25,13 @@ bootstrap:
 # ---- Python linting / formatting (does not build the extension) ----
 .PHONY: format
 format:
-	uv sync --no-install-project --group dev
+	uv sync --frozen --no-install-project --group dev
 	uv run --no-sync ruff format . && \
 		uv run --no-sync ruff check --fix .
 
 .PHONY: lint
 lint:
-	uv sync --no-install-project --group dev
+	uv sync --frozen --no-install-project --group dev
 	uv run --no-sync ruff format --check . && \
 		uv run --no-sync ruff check . && \
 		uv run --no-sync ty check microx examples
@@ -52,18 +52,18 @@ cpp:
 # extension.
 .PHONY: test
 test:
-	uv sync --no-dev
+	uv sync --frozen --no-dev
 ifneq ($(EXAMPLE),)
-	uv run python examples/$(EXAMPLE)
+	uv run --no-sync python examples/$(EXAMPLE)
 else ifneq (,$(filter $(UNAME_M),arm64 aarch64))
-	uv run python examples/example_arm64.py
-	uv run python examples/fuzz_arm64.py
+	uv run --no-sync python examples/example_arm64.py
+	uv run --no-sync python examples/fuzz_arm64.py
 else
-	uv run python examples/example.py
-	uv run python examples/example_x64.py
-	uv run python examples/example_rep.py
-	uv run python examples/example_tsc.py
-	uv run python examples/example_punpckhdq.py
+	uv run --no-sync python examples/example.py
+	uv run --no-sync python examples/example_x64.py
+	uv run --no-sync python examples/example_rep.py
+	uv run --no-sync python examples/example_tsc.py
+	uv run --no-sync python examples/example_punpckhdq.py
 endif
 
 .PHONY: clean
