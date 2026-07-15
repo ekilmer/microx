@@ -603,6 +603,18 @@ class AArch64Backend final : public Backend {
         }
       }
       gModFpsr = true;
+      // FPCR carries the rounding mode and flush-to-zero configuration, which
+      // Capstone rarely lists in the read set for arithmetic. Seed it so native
+      // execution honors the guest's configured mode instead of a stale/zero
+      // FPCR. It is an input only (the instruction does not modify it), so it
+      // is not force-marked modified.
+      if (!seen_fpcr) {
+        Data val;
+        std::memset(val.bytes, 0, sizeof(val.bytes));
+        if (executor->ReadReg("FPCR", 64, RegRequestHint::kGeneral, val)) {
+          StoreToState(Canon{Kind::kFpcr, 0}, val);
+        }
+      }
     }
     return ExecutorStatus::kGood;
   }
