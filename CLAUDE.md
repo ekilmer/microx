@@ -10,12 +10,12 @@ Instructions execute natively on the host CPU, so a build supports only its host
 
 ## Build commands
 
-The build uses `uv` + `pyproject.toml` (scikit-build-core backend, CMake ≥ 3.26). Python 3.10+.
+The build uses `uv` + `pyproject.toml` (scikit-build-core backend, CMake ≥ 3.26). Python 3.10+. A top-level `Makefile` is the canonical task runner — it wraps the `uv` and CMake commands below so local development and CI share one entry point (`make dev`, `format`, `lint`, `test`, `build`, `cpp`, `bootstrap`, `clean`); cibuildwheel wheels are built in CI (configured in `pyproject.toml`), not via `make`.
 
 On an **x86-64 host**, build XED first (fetched into `third_party/`):
 
 ```bash
-./scripts/bootstrap.sh          # clones & builds XED + mbuild into third_party/
+./scripts/bootstrap.sh          # clones & builds XED + mbuild into third_party/ (make bootstrap)
 ```
 
 On an **arm64 host**, Capstone is fetched automatically by CMake — no bootstrap needed.
@@ -24,7 +24,7 @@ On an **arm64 host**, Capstone is fetched automatically by CMake — no bootstra
 
 ```bash
 uv sync                         # build + install into the dev env
-uv build --python 3.10          # sdist + wheel into dist/
+uv build --python 3.10          # sdist + wheel into dist/ (make build)
 ```
 
 Build abi3 wheels with the **floor** interpreter (Python 3.10). Building the
@@ -33,29 +33,31 @@ corrupt the heap on 3.10/3.11 runtimes. cibuildwheel's `build = "cp310-*"`
 does this in CI; locally, use `uv build --python 3.10` (the pinned
 `.python-version` selects it by default).
 
-**C++ library** (standalone):
+**C++ library** (standalone, via `make cpp`):
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build             # links XED (x86) or fetched Capstone (arm64)
 ```
 
-**Wheels for release** are built by `cibuildwheel` (see the workflows); there is no Makefile.
+**Wheels for release** are built by `cibuildwheel` (see the workflows).
 
 ## Formatting & lint
 
-`prek` (or `pre-commit`) runs the hooks in `.pre-commit-config.yaml`:
+`make format` runs `ruff format` then `ruff check --fix`; `make lint` runs `ruff format --check`, `ruff check`, and `ty check microx examples`. Both do `uv sync --frozen` first, so the hooks never rewrite `uv.lock`.
+
+`prek` (or `pre-commit`) runs the full hook set in `.pre-commit-config.yaml`:
 
 ```bash
-prek run --all-files            # ruff-check, ruff-format, clang-format, cmake-format
-uv run ty check microx examples # type check (ty)
+prek run --all-files   # builtin hygiene, ruff + ty (via the make format/lint hooks),
+                       # clang-format, cmake-format, shellcheck, actionlint, zizmor
 ```
 
-`ruff` replaces black/isort/flake8; `.clang-format` is Google style; `cmake-format` uses `.cmake-format.json`.
+`ruff` replaces black/isort/flake8; `.clang-format` is Google style; `cmake-format` uses `.cmake-format.json`. GitHub Actions are linted with `actionlint` and security-audited with `zizmor`. The CI lint job skips zizmor (`SKIP=zizmor`) because it runs in its own workflow (`.github/workflows/zizmor.yml`).
 
 ## Testing
 
-There is no formal test suite. The scripts in `examples/` are runnable smoke tests (per host arch: `examples/example.py`/`example_x64.py` on x86, `examples/example_arm64.py` on arm64). `examples/fuzz_arm64.py` is a differential/fuzz harness for the AArch64 backend. They need the built `microx_core` extension importable (`uv sync`). CI runs the examples per architecture and builds/audits the abi3 wheels.
+There is no formal test suite. The scripts in `examples/` are runnable smoke tests (per host arch: `examples/example.py`/`example_x64.py` on x86, `examples/example_arm64.py` on arm64). `examples/fuzz_arm64.py` is a differential/fuzz harness for the AArch64 backend. They need the built `microx_core` extension importable (`uv sync`). `make test` builds the extension and runs the host-appropriate examples (`example_arm64.py` + `fuzz_arm64.py` on arm64; the x86 examples otherwise); `make test EXAMPLE=name.py` runs a single one. CI's `lint`, `cpp`, and `test` jobs invoke `make`, and the wheels job builds/audits the abi3 wheels per architecture.
 
 ## Architecture
 
@@ -91,5 +93,10 @@ Four layers, from bottom to top:
 
 ## Release & sync constraints
 
-- `cibuildwheel` owns the manylinux images (configured in `pyproject.toml`); there is no Makefile/`--plat` sync constraint anymore.
-- Version lives in the `VERSION` file (single source of truth, read by `scripts/release` and scikit-build-core); pushing a `v*` tag triggers the release workflow (cibuildwheel wheels + sdist + GitHub release + PyPI trusted publishing).
+- `cibuildwheel` owns the manylinux images (configured in `pyproject.toml`).
+- Version lives in the `VERSION` file (single source of truth, read by `scripts/release` and scikit-build-core); pushing a `v*` tag triggers `release.yml`: cibuildwheel wheels + sdist → **SLSA build provenance** (`actions/attest-build-provenance` attests every artifact); then the `publish` job (PyPI trusted publishing — OIDC, no token, PEP 740 attestations) and the `github-release` job run in parallel, each gated only on `provenance` (a PyPI-publish failure does not block the GitHub release).
+- Registering the PyPI trusted publisher (repo, `release.yml`, environment `pypi`) is a one-time prerequisite before a tag will actually publish.
+
+## GitHub Actions
+
+All action references are **SHA-pinned** with a trailing `# vX.Y.Z` comment; use `pinact run` to pin or re-pin after bumping an action (run it manually — there is no pinact hook or CI step enforcing it). Every workflow sets `permissions: {}` at the top with least-privilege per-job grants, and every `actions/checkout` uses `persist-credentials: false`. `zizmor` (the `zizmor.yml` workflow and the prek hook) must report no findings at medium+ severity.
