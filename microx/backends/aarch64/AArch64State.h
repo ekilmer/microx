@@ -21,15 +21,16 @@
 // and the assembly trampoline read and write. These MUST stay in sync with
 // `struct State` below (a static_assert enforces it for the C++ side).
 
-#define MICROX_ST_VEC 0     /* uint8_t  vec[32][16]  (v0..v31, 16-byte each) */
-#define MICROX_ST_GPR 512   /* uint64_t gpr[31]      (x0..x30) */
-#define MICROX_ST_SP 760    /* uint64_t sp */
-#define MICROX_ST_NZCV 768  /* uint64_t nzcv (PSTATE.NZCV in bits [31:28]) */
-#define MICROX_ST_FPCR 776  /* uint64_t fpcr */
-#define MICROX_ST_FPSR 784  /* uint64_t fpsr */
-#define MICROX_ST_ARENA 792 /* uint64_t arena_entry (generated code address) \
-                             */
-#define MICROX_ST_RET 800   /* uint64_t ret_addr    (&microx_arm64_return) */
+#define MICROX_ST_VEC 0    /* uint8_t  vec[32][16]  (v0..v31, 16-byte each) */
+#define MICROX_ST_GPR 512  /* uint64_t gpr[31]      (x0..x30) */
+#define MICROX_ST_SP 760   /* uint64_t sp */
+#define MICROX_ST_NZCV 768 /* uint64_t nzcv (PSTATE.NZCV in bits [31:28]) */
+#define MICROX_ST_FPCR 776 /* uint64_t fpcr */
+#define MICROX_ST_FPSR 784 /* uint64_t fpsr */
+#define MICROX_ST_ARENA                                                    \
+  792                     /* uint64_t arena_entry (generated code address) \
+                           */
+#define MICROX_ST_RET 800 /* uint64_t ret_addr    (&microx_arm64_return) */
 
 #ifndef __ASSEMBLER__
 
