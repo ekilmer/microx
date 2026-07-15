@@ -673,15 +673,20 @@ class AArch64Backend final : public Backend {
                                         static_cast<uintptr_t>(access_disp),
                                         gMemBytes * 8, hint);
 
+    // Always read the operand through the executor, even for stores. That read
+    // is what drives the executor's permission model (e.g.
+    // PermissionedMemoryMap's can_write check, selected by the kWriteOnly
+    // hint), so skipping it for stores would let a store to a mapped but
+    // non-writable region silently succeed. The staged bytes also seed the
+    // buffer, mirroring the x86 backend, so any bytes the store does not
+    // overwrite are preserved.
     std::memset(gMemBuf, 0, sizeof(gMemBuf));
     Data data;
     std::memset(data.bytes, 0, sizeof(data.bytes));
-    if (!gMemIsStore) {
-      if (!executor->ReadMem(gMemAddr, gMemBytes * 8, hint, data)) {
-        return ExecutorStatus::kErrorReadMem;
-      }
-      std::memcpy(gMemBuf, data.bytes, gMemBytes);
+    if (!executor->ReadMem(gMemAddr, gMemBytes * 8, hint, data)) {
+      return ExecutorStatus::kErrorReadMem;
     }
+    std::memcpy(gMemBuf, data.bytes, gMemBytes);
 
     gMemPresent = true;
     gMemWriteback = writeback;
