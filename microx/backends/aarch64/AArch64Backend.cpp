@@ -251,15 +251,106 @@ static bool HasGroup(uint8_t group) {
   return false;
 }
 
-static bool HasSveOrSmeOperand(void) {
-  const cs_aarch64& a = gInsn->detail->aarch64;
-  for (uint8_t i = 0; i < a.op_count; ++i) {
-    const aarch64_op_type t = a.operands[i].type;
-    if (AARCH64_OP_SME == t || AARCH64_OP_PRED == t) {
-      return true;
+// Feature-group rejection. Capstone tags each instruction with the
+// architectural features it requires, in the same `detail->groups[]` array
+// `HasGroup` reads. A single-instruction, native-execution model cannot
+// faithfully or safely run these classes, so reject any instruction that needs
+// one:
+//   * FEAT_PAuth / PAuthLR (pointer authentication): results depend on the host
+//     process's keys and context — `pacia`/`autia`/... would compute host
+//     values.
+//   * FEAT_MTE (memory tagging): allocation-tag state is not modeled.
+//   * FEAT_LSE / LSE128 (atomics): read-modify-write ordering can't be captured
+//     single-instruction. This subsumes the whole LD<op>/ST<op>/SWP/CAS family.
+//   * SVE/SVE2 and SME/SME2: vector length, streaming mode and ZA state are
+//     out of scope. This also catches unpredicated SVE (e.g. `add z0.d, ...`),
+//     which the operand-type check `HasSveOrSmeOperand` does not see.
+// HASNEONORSME is deliberately absent: it marks base Advanced SIMD / scalar-FP
+// instructions (e.g. `fmulx s0,s1,s2`, `frecps`, `frsqrts`) that are *also*
+// legal in SME streaming mode — i.e. still plain NEON on any host. Rejecting it
+// would break supported FP. (Contrast HASSVEORSME, which genuinely requires
+// SVE/SME.)
+static bool HasRejectedFeature(void) {
+  const cs_detail* d = gInsn->detail;
+  for (uint8_t i = 0; i < d->groups_count; ++i) {
+    switch (d->groups[i]) {
+      case AARCH64_FEATURE_HASPAUTH:
+      case AARCH64_FEATURE_HASPAUTHLR:
+      case AARCH64_FEATURE_HASMTE:
+      case AARCH64_FEATURE_HASLSE:
+      case AARCH64_FEATURE_HASLSE128:
+      case AARCH64_FEATURE_HASSVE:
+      case AARCH64_FEATURE_HASSVE2:
+      case AARCH64_FEATURE_HASSVE2P1:
+      case AARCH64_FEATURE_HASSVE2AES:
+      case AARCH64_FEATURE_HASSVE2SM4:
+      case AARCH64_FEATURE_HASSVE2SHA3:
+      case AARCH64_FEATURE_HASSVE2BITPERM:
+      case AARCH64_FEATURE_HASSME:
+      case AARCH64_FEATURE_HASSME2:
+      case AARCH64_FEATURE_HASSME2P1:
+      case AARCH64_FEATURE_HASSMEF64F64:
+      case AARCH64_FEATURE_HASSMEF16F16:
+      case AARCH64_FEATURE_HASSMEFA64:
+      case AARCH64_FEATURE_HASSMEI16I64:
+      case AARCH64_FEATURE_HASSVEORSME:
+      case AARCH64_FEATURE_HASSVE2ORSME:
+      case AARCH64_FEATURE_HASSVE2ORSME2:
+      case AARCH64_FEATURE_HASSVE2P1_OR_HASSME:
+      case AARCH64_FEATURE_HASSVE2P1_OR_HASSME2:
+      case AARCH64_FEATURE_HASSVE2P1_OR_HASSME2P1:
+        return true;
+      default:
+        break;
     }
   }
   return false;
+}
+
+// True if the instruction touches SVE/SME state: an SME or predicate operand,
+// or any Scalable Vector (Z), predicate (P/PN), ZA-tile, ZT0, FFR, or VG
+// register. Those registers are exclusive to SVE/SME, so this robustly rejects
+// the whole family — including unpredicated SVE and the streaming-SVE FP8 forms
+// whose operands are plain Z registers — independent of Capstone's
+// feature-group tagging. (GPR-only SVE/SME instructions such as `rdsvl`/`cntd`
+// carry no such operand; those are caught by the HASSVE/HASSME groups in
+// HasRejectedFeature.)
+static bool UsesSveOrSme(void) {
+  const cs_aarch64& a = gInsn->detail->aarch64;
+  for (uint8_t i = 0; i < a.op_count; ++i) {
+    const cs_aarch64_op& op = a.operands[i];
+    if (AARCH64_OP_SME == op.type || AARCH64_OP_PRED == op.type) {
+      return true;
+    }
+    if (AARCH64_OP_REG == op.type) {
+      const unsigned r = op.reg;
+      if (AARCH64_REG_FFR == r || AARCH64_REG_VG == r || AARCH64_REG_ZA == r ||
+          (r >= AARCH64_REG_P0 && r <= AARCH64_REG_PN15) ||
+          (r >= AARCH64_REG_Z0 && r <= AARCH64_REG_Z31) ||
+          (r >= AARCH64_REG_ZAB0 && r <= AARCH64_REG_ZT0)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Pointer-authentication HINT-space aliases (PACIASP/AUTIASP/XPACLRI and the
+// *Z / *1716 forms). Unlike the dedicated PAC encodings (which carry the
+// HASPAUTH feature group and are caught by HasRejectedFeature), these decode as
+// AARCH64_INS_HINT with no feature group and would otherwise be silently
+// treated as a NOP. Signing/authenticating the return address is a real state
+// change we cannot model, so reject them. Detected by the resolved
+// (DETAIL_REAL) mnemonic, which is `paci*`/`auti*`/`xpac*` for exactly this
+// family (other hints — nop, bti, esb, csdb, wfe, yield, ... — do not share
+// those prefixes).
+static bool IsPointerAuthHint(void) {
+  if (AARCH64_INS_HINT != gInsn->id) {
+    return false;
+  }
+  const char* m = gInsn->mnemonic;
+  return 0 == std::strncmp(m, "paci", 4) || 0 == std::strncmp(m, "auti", 4) ||
+         0 == std::strncmp(m, "xpac", 4);
 }
 
 static bool IsRejectedInstruction(void) {
@@ -270,7 +361,10 @@ static bool IsRejectedInstruction(void) {
     case AARCH64_INS_SMC:
     case AARCH64_INS_BRK:
     case AARCH64_INS_HLT:
-    // Exclusive monitors — cannot be represented single-instruction.
+    // Exclusive monitors — cannot be represented single-instruction, and
+    // (unlike the LSE atomics, which carry the HASLSE feature group and are
+    // rejected by HasRejectedFeature) they carry no Capstone feature group, so
+    // they must be matched by instruction id here.
     case AARCH64_INS_LDXR:
     case AARCH64_INS_LDAXR:
     case AARCH64_INS_STXR:
@@ -279,14 +373,15 @@ static bool IsRejectedInstruction(void) {
     case AARCH64_INS_STXP:
     case AARCH64_INS_LDAXP:
     case AARCH64_INS_STLXP:
-    // LSE atomics — read-modify-write memory ordering semantics out of scope.
-    case AARCH64_INS_CAS:
-    case AARCH64_INS_CASA:
-    case AARCH64_INS_CASAL:
-    case AARCH64_INS_CASL:
-    case AARCH64_INS_CASP:
-    case AARCH64_INS_SWP:
-    case AARCH64_INS_LDADD:
+    // ... and the byte/halfword exclusive variants (no pair forms exist).
+    case AARCH64_INS_LDXRB:
+    case AARCH64_INS_LDXRH:
+    case AARCH64_INS_LDAXRB:
+    case AARCH64_INS_LDAXRH:
+    case AARCH64_INS_STXRB:
+    case AARCH64_INS_STXRH:
+    case AARCH64_INS_STLXRB:
+    case AARCH64_INS_STLXRH:
       return true;
     default:
       break;
@@ -523,14 +618,21 @@ class AArch64Backend final : public Backend {
     if (HasGroup(AARCH64_GRP_PRIVILEGE) || HasGroup(AARCH64_GRP_INT)) {
       return ExecutorStatus::kErrorUnsupportedFeatures;
     }
-    if (IsRejectedInstruction() || HasSveOrSmeOperand()) {
+    if (IsRejectedInstruction() || HasRejectedFeature() || UsesSveOrSme() ||
+        IsPointerAuthHint()) {
       return ExecutorStatus::kErrorUnsupportedFeatures;
     }
     if (IsSimdLoadStoreStructure()) {
       return ExecutorStatus::kErrorUnsupportedFeatures;
     }
 
-    // MRS/MSR of anything other than NZCV/FPCR/FPSR is out of scope.
+    // MRS/MSR of any system register is out of scope: reject every
+    // system-register read/write. The privilege-group check above already
+    // rejects every MRS/MSR that Capstone tags as privileged; this is the
+    // fallback for any it does not, so a stray `msr` can never execute natively
+    // and corrupt host state (e.g. TPIDR_EL0). NZCV, FPCR and FPSR are
+    // reachable only as named registers at the callback boundary — never via
+    // MRS/MSR.
     if (AARCH64_INS_MRS == gInsn->id || AARCH64_INS_MSR == gInsn->id) {
       const cs_aarch64& a = gInsn->detail->aarch64;
       for (uint8_t i = 0; i < a.op_count; ++i) {

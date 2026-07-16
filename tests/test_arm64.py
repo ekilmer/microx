@@ -301,3 +301,121 @@ def test_cbz_cbnz_respect_register_width(word, x0, expected_pc):
     store_program(code, [word])
     t = run(ops, mem, regs={"X0": x0})
     assert t.read_register("PC", t.REG_HINT_PROGRAM_COUNTER) == expected_pc
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        # Pointer authentication (FEAT_PAuth) -> HasPAuth feature group.
+        0xDAC10020,  # pacia x0, x1
+        0xDAC11020,  # autia x0, x1
+        0xDAC143E0,  # xpaci x0
+        # Memory tagging (FEAT_MTE) -> HasMTE.
+        0x9ADF1020,  # irg  x0, x1
+        0xD9200820,  # stg  x0, [x1]
+        # LSE / LSE128 atomics -> HasLSE / HasLSE128. None of these were in the
+        # old hand-listed opcode subset, so they regression-guard the switch to
+        # feature-group detection (they would otherwise run natively).
+        0xF8201041,  # ldclr   x0, x1, [x2]
+        0xF8E320A4,  # ldeoral x3, x4, [x5]
+        0xF8603041,  # ldsetl  x0, x1, [x2]
+        0xF8E08041,  # swpal   x0, x1, [x2]
+        0xC8E0FC41,  # casal   x0, x1, [x2]
+        0xF820003F,  # stadd   x0, [x1]
+        0x19211040,  # ldclrp  x0, x1, [x2]   (LSE128)
+        # Unpredicated SVE add -> caught by an SVE Z-register operand (its
+        # operands are all plain registers, so the operand-type check alone
+        # misses it).
+        0x04E00000,  # add z0.d, z0.d, z0.d
+        # Streaming-SVE FP8 (SME2 family) -> caught by their Z-register operands
+        # even though their FEAT_SSVE_FP8* groups are not in the reject-set.
+        0x64A28820,  # fmlalb z0.h, z1.b, z2.b
+        0x64228420,  # fdot   z0.h, z1.b, z2.b
+        # Pointer-auth HINT-space aliases -> caught by mnemonic (they decode as
+        # HINT with no feature group and would otherwise be a silent NOP).
+        0xD503233F,  # paciasp
+        0xD50323BF,  # autiasp
+        0xD50320FF,  # xpaclri
+        # Byte/halfword exclusive monitors -> caught by instruction id (they
+        # carry no feature group).
+        0x085F7C20,  # ldxrb w0, [x1]
+        0x08027C20,  # stxrb w2, w0, [x1]
+        0x48027C20,  # stxrh w2, w0, [x1]
+    ],
+    ids=[
+        "pacia",
+        "autia",
+        "xpaci",
+        "irg",
+        "stg",
+        "ldclr",
+        "ldeoral",
+        "ldsetl",
+        "swpal",
+        "casal",
+        "stadd",
+        "ldclrp",
+        "sve_add",
+        "ssve_fmlalb",
+        "ssve_fdot",
+        "paciasp",
+        "autiasp",
+        "xpaclri",
+        "ldxrb",
+        "stxrb",
+        "stxrh",
+    ],
+)
+def test_unsupported_feature_classes_rejected(word):
+    """PAC/MTE/LSE/LSE128/SVE/SME are declined rather than mis-executed.
+
+    Native execution would depend on state microx does not model (PAC keys, MTE
+    tags, atomic ordering, vector length), so microx rejects the whole family.
+    Detection is layered — Capstone feature groups, SVE/SME register operands,
+    the PAC HINT-space mnemonics, and instruction id for the group-less
+    exclusive monitors — so coverage is not a hand-listed opcode subset.
+    """
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [word])
+    with pytest.raises(microx.UnsupportedError):
+        run(ops, mem, regs={"X0": RW + 0x100, "X1": RW + 0x100, "X2": RW + 0x100})
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        0xD53B4200,  # mrs x0, nzcv
+        0xD51B4200,  # msr nzcv, x0
+        0xD53B4400,  # mrs x0, fpcr
+        0xD53B4420,  # mrs x0, fpsr
+        0xD53BD040,  # mrs x0, tpidr_el0
+    ],
+    ids=["mrs_nzcv", "msr_nzcv", "mrs_fpcr", "mrs_fpsr", "mrs_tpidr_el0"],
+)
+def test_mrs_msr_system_register_rejected(word):
+    """MRS/MSR of any system register is out of scope.
+
+    NZCV/FPCR/FPSR are reachable as named registers at the callback boundary,
+    but never by executing MRS/MSR (a native `msr` could corrupt host state).
+    """
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [word])
+    with pytest.raises(microx.UnsupportedError):
+        run(ops, mem)
+
+
+def test_neon_or_sme_scalar_fp_not_over_rejected():
+    """Base scalar FP tagged "NEON or SME" (HasNEONorSME) must still execute.
+
+    Rejecting the SVE/SME feature groups must not sweep up instructions like
+    `fmulx`, which Capstone marks valid in either NEON or SME streaming mode
+    (i.e. still plain NEON on any host).
+    """
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [0x5E22DC20])  # fmulx s0, s1, s2
+    # S1 = 2.0f (0x40000000), S2 = 3.0f (0x40400000) -> S0 = 6.0f (0x40C00000).
+    t = run(ops, mem, regs={"V1": 0x40000000, "V2": 0x40400000})
+    assert t.read_register("V0", t.REG_HINT_NONE) & 0xFFFF_FFFF == 0x40C0_0000

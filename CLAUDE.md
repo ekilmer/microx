@@ -89,7 +89,8 @@ Four layers, from bottom to top:
 
 ## Known AArch64 v1 limitations
 
-- SVE/SME/PAC/MTE, exclusive monitors (LDXR/STXR), and LSE atomics are rejected with `UnsupportedError`.
+- SVE/SVE2, SME/SME2, pointer authentication (FEAT_PAuth, incl. the HINT-space `paciasp`/`autiasp`/`xpaclri` aliases), memory tagging (FEAT_MTE), and LSE/LSE128 atomics are rejected with `UnsupportedError`. Detection combines Capstone feature groups (`detail->groups[]`, the `HasRejectedFeature` reject-set), any SVE/SME register operand (Z/P/ZA/ZT/FFR/VG — robust across feature-enum churn), and — for the PAC HINT-space aliases, which carry no feature group — the resolved mnemonic. Exclusive monitors (`LDXR`/`STXR`/`LDXP`/`STXP`, their acquire/release forms, and the byte/halfword `LDXRB`/`STXRH`/… variants) carry no feature group and are rejected by instruction id.
+- `MRS`/`MSR` of any system register is rejected. `NZCV`, `FPCR`, and `FPSR` are reachable only as named registers at the callback boundary — never by executing `MRS`/`MSR`.
 - NEON load/store of multiple/single structures (`LD1`–`LD4`/`ST1`–`ST4`, incl. `LD1R` and lane forms) are rejected; single-register vector loads/stores via `LDR`/`STR`/`LDP`/`STP` are supported.
 - SP as a *data* operand (e.g. `add sp, sp, #16`) is rejected; SP as a memory *base* (including pre/post-index writeback) is supported.
 - The Capstone dependency is pinned to a `next` commit (v6 alpha); bump deliberately.
