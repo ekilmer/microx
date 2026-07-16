@@ -1,5 +1,6 @@
-import microx
 from flags import Flags
+
+import microx
 
 
 class MemoryFlags(Flags):
@@ -22,7 +23,7 @@ class FlaggedMemoryMap(microx.MemoryMap):
         self._base = base
         self._limit = limit
         self._access_flags = access_flags
-        super(FlaggedMemoryMap, self).__init__(mapname)
+        super().__init__(mapname)
 
     def _can_do_op(self, op, addr):
         return op in self._access_flags and self._base <= addr < self._limit

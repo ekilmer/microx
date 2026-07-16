@@ -1,0 +1,66 @@
+# Pre-commit hooks for code quality. Run with `prek run --all-files`
+# (prek: https://github.com/j178/prek, a faster pre-commit alternative).
+default_language_version:
+  python: python3.10
+exclude: '^third_party/'
+
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Shell script linting
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: 99470f5e12208ff0fb17ab81c3c494f7620a1d8d  # frozen: v0.11.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=error]
+
+  # GitHub Actions linting
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+
+  # GitHub Actions security audit
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 64a97fb7fa63188393d3215c6e312f5f9c6d0f78  # frozen: v1.27.0
+    hooks:
+      - id: zizmor
+        args: [--persona=regular, --min-severity=medium, --min-confidence=medium]
+
+  # C / C++ formatting (Google style, .clang-format)
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v22.1.8
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+        exclude: '^microx/backends/x86/XED\.h$'
+
+  # CMake formatting (.cmake-format.json)
+  - repo: https://github.com/cheshirekow/cmake-format-precommit
+    rev: v0.6.13
+    hooks:
+      - id: cmake-format
+
+  # Python format + lint + types, via the Makefile task runner.
+  - repo: local
+    hooks:
+      - id: format
+        name: format Python (ruff)
+        entry: make format
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: lint
+        name: lint Python (ruff + ty)
+        entry: make lint
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

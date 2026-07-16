@@ -1,70 +1,67 @@
-# NOTE(ww): Make sure to update the platform tag in .github/workflows/release.yml
-# if you update this image. The two MUST remain in sync to ensure correct wheel builds.
-MANYLINUX_IMAGE := quay.io/pypa/manylinux_2_28_x86_64
-CLANG_FORMAT := clang-format
-ALL_PY_SRCS := $(shell \
-	find . \
-		-type f \
-		\( -path */third_party/* \) -prune \
-		-o -name '*.py' \
-		-print \
-)
-ALL_CXX_SRCS := $(shell \
-	find . \
-		-type f \
-		\( -path */third_party/* \) -prune \
-		-o \( -name '*.cpp' -o -name '*.h' \) \
-		-print \
-)
-ALL_LISTFILES := $(shell \
-	find . \
-		-type f \
-		\( -path */third_party/* \) -prune \
-		-o \( -name 'CMakeLists.txt' -o -name '*.cmake' \) \
-		-print \
-)
+# Task runner for microx. Wraps the uv / CMake / cibuildwheel workflows so that
+# local development and CI share one entry point.
+#
+# On x86-64 hosts, Intel XED must be built first (`make bootstrap`); on arm64
+# hosts the AArch64 decoder (Capstone) is fetched automatically by CMake.
+
+UNAME_M := $(shell uname -m)
 
 .PHONY: all
 all:
-	@echo "This Makefile does not build anything."
+	@echo "Run my targets individually! (dev, format, lint, test, demo, build, cpp, bootstrap, clean)"
 
+.PHONY: dev
+dev:
+	uv sync --group dev
+	uv run prek install
+
+.PHONY: bootstrap
+bootstrap:
+	./scripts/bootstrap.sh
+
+# ---- Python linting / formatting (does not build the extension) ----
 .PHONY: format
-format: blacken clang-format cmake-format
+format:
+	uv sync --frozen --no-install-project --group dev
+	uv run --no-sync ruff format . && \
+		uv run --no-sync ruff check --fix .
 
-.PHONY: blacken
-blacken:
-	black $(ALL_PY_SRCS)
-	git diff --exit-code
+.PHONY: lint
+lint:
+	uv sync --frozen --no-install-project --group dev
+	uv run --no-sync ruff format --check . && \
+		uv run --no-sync ruff check . && \
+		uv run --no-sync ty check microx examples tests
 
-.PHONY: clang-format
-clang-format:
-	$(CLANG_FORMAT) -i -style=file $(ALL_CXX_SRCS)
-	git diff --exit-code
+# ---- Build ----
+.PHONY: build
+build:
+	uv build --python 3.10   # abi3 wheels must be built with the floor Python
 
-.PHONY: cmake-format
-cmake-format:
-	cmake-format -i $(ALL_LISTFILES)
-	git diff --exit-code
+# Build the standalone C++ library (arch-native) with CMake.
+.PHONY: cpp
+cpp:
+	cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+	cmake --build build --parallel
 
-.PHONY: manylinux
-manylinux:
-	docker pull $(MANYLINUX_IMAGE)
-	# NOTE(ww): We pass PYTHON through the environment here for the XED
-	# build, which is Python based. The version doesn't matter, as long
-	# as mbuild itself is okay with it. It is **not** related to the wheel
-	# builds, which happen subsequently.
-	docker run -e PYTHON=/opt/python/cp38-cp38/bin/python \
-		--rm -v $(shell pwd):/io $(MANYLINUX_IMAGE) \
-		/io/scripts/bootstrap.sh
-	docker run \
-		--rm -v $(shell pwd):/io $(MANYLINUX_IMAGE) \
-		/opt/python/cp37-cp37m/bin/pip wheel /io -w /io/dist
-	docker run \
-		--rm -v $(shell pwd):/io $(MANYLINUX_IMAGE) \
-		/opt/python/cp38-cp38/bin/pip wheel /io -w /io/dist
-	docker run \
-		--rm -v $(shell pwd):/io $(MANYLINUX_IMAGE) \
-		/opt/python/cp39-cp39/bin/pip wheel /io -w /io/dist
-	docker run \
-		--rm -v $(shell pwd):/io $(MANYLINUX_IMAGE) \
-		/opt/python/cp310-cp310/bin/pip wheel /io -w /io/dist
+# ---- Tests (pytest; the arch-specific tests auto-skip on the wrong host) ----
+.PHONY: test
+test:
+	uv sync --frozen --group dev
+	uv run --no-sync pytest
+
+# ---- Demo scripts (illustrative end-to-end usage; run any directly with
+# `uv run python examples/<name>.py`). Runs the host-appropriate ones. ----
+.PHONY: demo
+demo:
+	uv sync --frozen --no-dev
+ifneq (,$(filter $(UNAME_M),arm64 aarch64))
+	uv run --no-sync python examples/example_arm64.py
+	uv run --no-sync python examples/fuzz_arm64.py
+else
+	uv run --no-sync python examples/example_x64.py
+endif
+
+.PHONY: clean
+clean:
+	rm -rf build dist wheelhouse

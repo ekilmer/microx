@@ -12,4 +12,3 @@ mov    byte ptr [ebp-0x1], cl
 mov    esp,ebp
 pop    ebp
 ret    0x0
-

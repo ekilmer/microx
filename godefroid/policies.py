@@ -1,7 +1,7 @@
+import collections
+import secrets
 import sys
 from enum import Enum
-import secrets
-import collections
 
 
 class DefaultMemoryPolicy:
@@ -32,7 +32,6 @@ class InputType(Enum):
 
 
 class InputMemoryPolicy:
-
     # TODO(artem): Make this a configurable value or based on address size
     POINTER_INCREMENT = int(0x1000 / 4)
 
@@ -69,7 +68,7 @@ class InputMemoryPolicy:
 
     def add_output(self, addr, size):
         sys.stdout.write(
-            f"!!! Manually adding output at {addr:08x} - {addr+size:08x}\n"
+            f"!!! Manually adding output at {addr:08x} - {addr + size:08x}\n"
         )
         self._known_outputs[addr] = size
 
@@ -86,7 +85,7 @@ class InputMemoryPolicy:
         # TODO(artem): Handle the case where we run out of pointer space :)
         assert self._pointer_watermark < self._pointers_end
         sys.stdout.write(
-            "Generating a pointer going to {:08x} in pointer space\n".format(new_ptr)
+            f"Generating a pointer going to {new_ptr:08x} in pointer space\n"
         )
 
         return new_ptr
@@ -117,7 +116,7 @@ class InputMemoryPolicy:
 
     def read_before_write(self, addr, size, data):
         sys.stdout.write(f"Read-before-write of {size} bytes\n")
-        sys.stdout.write(f" at {addr:08x} [{addr:08x} - {addr+size:08x}]\n")
+        sys.stdout.write(f" at {addr:08x} [{addr:08x} - {addr + size:08x}]\n")
         new_data = data
         # TODO(artem): Check if this address+size has been previously read
         if self._address_size == size:
@@ -139,7 +138,7 @@ class InputMemoryPolicy:
 
     def write_before_read(self, addr, size, data):
         sys.stdout.write(f"Write-before-read of {size} bytes")
-        sys.stdout.write(f" at {addr:08x} [{addr:08x} - {addr+size:08x}]\n")
+        sys.stdout.write(f" at {addr:08x} [{addr:08x} - {addr + size:08x}]\n")
 
         self._known_outputs[addr] = size
 
@@ -249,7 +248,6 @@ class InputMemoryPolicy:
 
         # is it a pointer to the input heap?
         if self._pointers_start <= addr < self._pointers_end:
-
             if addr > self._pointer_watermark:
                 self._pointer_watermark += InputMemoryPolicy.POINTER_INCREMENT
                 assert self._pointer_watermark < self._pointers_end
@@ -258,7 +256,6 @@ class InputMemoryPolicy:
 
         # is it on the stack?
         if self._start <= addr < self._end:
-
             return True
 
         # Its probably not an input

@@ -3,22 +3,23 @@
 
 import collections
 
-from microx_core import Executor
-from microx_core import MicroxError
 from microx_core import (  # noqa: F401
+    HOST_ARCH,
+    AddressFaultError,
+    Executor,
     InstructionDecodeError,
     InstructionFetchError,
-    AddressFaultError,
+    MicroxError,
     UnsupportedError,
 )
 
 LIST_LIKE = (str, bytes, bytearray, tuple, list)
 
 
-class Operations(object):
+class Operations:
     def convert_to_byte_string(self, data, for_exe=False):
         if isinstance(data, int):
-            data = data.to_bytes(8, byte_order="little")
+            data = data.to_bytes(8, byteorder="little")
 
         if for_exe:
             return bytes(data)
@@ -60,11 +61,11 @@ class MemoryAccessException(MicroxError):
     pass
 
 
-class MemoryMap(object):
+class MemoryMap:
     def __init__(self, mapname=None):
         if mapname is None:
             # Default to a sane-ish map name
-            self.__name = "map_{:08x}-{:08x}".format(self.base(), self.limit())
+            self.__name = f"map_{self.base():08x}-{self.limit():08x}"
         else:
             # Assume they picked a sane name
             self.__name = mapname
@@ -104,37 +105,37 @@ class MemoryMap(object):
         return 0
 
     def load_byte(self, addr):
-        raise MemoryAccessException("Can't load byte from address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't load byte from address {addr:08x}")
 
     def load_word(self, addr):
-        raise MemoryAccessException("Can't load word from address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't load word from address {addr:08x}")
 
     def load_dword(self, addr):
-        raise MemoryAccessException("Can't load dword from address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't load dword from address {addr:08x}")
 
     def load_qword(self, addr):
-        raise MemoryAccessException("Can't load qword from address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't load qword from address {addr:08x}")
 
     def load_bytes(self, addr, num_bytes):
         raise MemoryAccessException(
-            "Can't load {} bytes from address {:08x}".format(num_bytes, addr)
+            f"Can't load {num_bytes} bytes from address {addr:08x}"
         )
 
     def store_byte(self, addr, val):
-        raise MemoryAccessException("Can't store byte to address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't store byte to address {addr:08x}")
 
     def store_word(self, addr, val):
-        raise MemoryAccessException("Can't store word to address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't store word to address {addr:08x}")
 
     def store_dword(self, addr, val):
-        raise MemoryAccessException("Can't store dword to address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't store dword to address {addr:08x}")
 
     def store_qword(self, addr, val):
-        raise MemoryAccessException("Can't store qword to address {:08x}".format(addr))
+        raise MemoryAccessException(f"Can't store qword to address {addr:08x}")
 
     def store_bytes(self, addr, data):
         raise MemoryAccessException(
-            "Can't store {} bytes to address {:08x}".format(len(data), addr)
+            f"Can't store {len(data)} bytes to address {addr:08x}"
         )
 
 
@@ -206,7 +207,7 @@ class PermissionedMemoryMap(MemoryMap):
         self._can_read = can_read
         self._can_write = can_write
         self._can_execute = can_execute
-        super(PermissionedMemoryMap, self).__init__(mapname)
+        super().__init__(mapname)
 
     def can_read(self, byte_addr):
         return self._can_read and self._base <= byte_addr < self._limit
@@ -228,9 +229,7 @@ class ArrayMemoryMap(PermissionedMemoryMap):
     def __init__(
         self, ops, base, limit, can_read=True, can_write=True, can_execute=False
     ):
-        super(ArrayMemoryMap, self).__init__(
-            ops, base, limit, can_read, can_write, can_execute
-        )
+        super().__init__(ops, base, limit, can_read, can_write, can_execute)
         self._data = [0] * (limit - base)
 
     def load_byte(self, addr):
@@ -288,7 +287,7 @@ class ArrayMemoryMap(PermissionedMemoryMap):
             offset += 1
 
 
-class Thread(object):
+class Thread:
     REG_HINT_NONE = 0
     REG_HINT_GENERAL = 1
     REG_HINT_PROGRAM_COUNTER = 2
@@ -316,7 +315,7 @@ class Thread(object):
 
 class EmptyThread(Thread):
     def __init__(self, ops):
-        super(EmptyThread, self).__init__(ops)
+        super().__init__(ops)
         self._regs = collections.defaultdict(int)
         self._fpu_data = b"\0" * 512
 
@@ -333,8 +332,7 @@ class EmptyThread(Thread):
         self._fpu_data = new_fpu_data
 
 
-class Memory(object):
-
+class Memory:
     MEM_HINT_READ_ONLY = 0
     MEM_HINT_READ_EXECUTABLE = 1
     MEM_HINT_WRITE_ONLY = 2
@@ -380,7 +378,7 @@ class Memory(object):
         # memory map we have. This is wasteful since there
         # are much fewer unique maps. We can try keeping track
         # of unique maps as we add them, and disallow overlapping maps
-        for (k, v) in self._memory_maps.items():
+        for v in self._memory_maps.values():
             if map_name == v.name:
                 found_maps.add(v)
 
@@ -457,7 +455,7 @@ class Memory(object):
 
 class ProxyThread(Thread):
     def __init__(self, next):
-        super(ProxyThread, self).__init__(next._ops)
+        super().__init__(next._ops)
         assert isinstance(next, Thread)
         self._next = next
 
@@ -485,9 +483,10 @@ class Process(Executor):
 
     MEM_EXEC_HINTS = (Memory.MEM_HINT_READ_EXECUTABLE,)
 
-    def __init__(self, ops, memory):
+    def __init__(self, ops, memory, arch="auto"):
         assert isinstance(memory, Memory)
-        super(Process, self).__init__(memory.address_size_bits())
+        self._arch = HOST_ARCH if arch == "auto" else arch
+        super().__init__(memory.address_size_bits(), self._arch)
         self._memory = memory
         self._thread = None
         self._ops = ops
@@ -498,27 +497,35 @@ class Process(Executor):
 
         self._thread = thread
         try:
-            super(Process, self).execute(max_num_instructions)
+            super().execute(max_num_instructions)
 
-            # Approximate TSC as 1 cycle / instruction.
-            tsc = self.read_register("TSC", thread.REG_HINT_NONE)
-            self.write_register("TSC", tsc + max_num_instructions)
+            # TSC is an x86 concept; approximate it as 1 cycle / instruction.
+            if self._arch in ("x86_64", "x86"):
+                tsc = self.read_register("TSC", thread.REG_HINT_NONE)
+                self.write_register("TSC", tsc + max_num_instructions)
         finally:
             self._thread = None
 
     def read_register(self, reg_name, hint):
+        assert self._thread is not None  # set for the duration of execute()
         return self._ops.convert_to_integer(
             self._thread.read_register(reg_name, hint), for_exe=True
         )
 
     def write_register(self, reg_name, val):
+        assert self._thread is not None  # set for the duration of execute()
         self._thread.write_register(reg_name, self._ops.convert_to_integer(val))
 
     def compute_address(self, seg_name, base_addr, index, scale, disp, size, hint):
         seg_base = 0
-        if hint != Memory.MEM_HINT_ADDRESS_GEN:
+        # Segmentation is an x86 concept; ARM passes an empty segment name.
+        if (
+            self._arch in ("x86_64", "x86")
+            and seg_name
+            and hint != Memory.MEM_HINT_ADDRESS_GEN
+        ):
             seg_base = self.read_register(
-                "{}_BASE".format(seg_name), Thread.REG_HINT_MEMORY_SEGMENT_ADDRESS
+                f"{seg_name}_BASE", Thread.REG_HINT_MEMORY_SEGMENT_ADDRESS
             )
             seg_base = seg_base & self._memory._address_mask
         return seg_base + base_addr + (index * scale) + disp
@@ -537,19 +544,19 @@ class Process(Executor):
             if check_read:
                 if not self._memory.can_read(byte_addr):
                     raise MemoryAccessException(
-                        "Address {:08x} is not readable".format(byte_addr)
+                        f"Address {byte_addr:08x} is not readable"
                     )
 
             if check_write:
                 if not self._memory.can_write(byte_addr):
                     raise MemoryAccessException(
-                        "Address {:08x} is not writable".format(byte_addr)
+                        f"Address {byte_addr:08x} is not writable"
                     )
 
             if check_exec:
                 if not self._memory.can_execute(byte_addr):
                     raise MemoryAccessException(
-                        "Address {:08x} is not executable".format(byte_addr)
+                        f"Address {byte_addr:08x} is not executable"
                     )
 
         return self._ops.convert_to_byte_string(
@@ -562,7 +569,9 @@ class Process(Executor):
 
     # The FPU is treated as an opaque blob of memory.
     def read_fpu(self):
+        assert self._thread is not None  # set for the duration of execute()
         return self._ops.convert_to_byte_string(self._thread.read_fpu(), for_exe=True)
 
     def write_fpu(self, fpu):
+        assert self._thread is not None  # set for the duration of execute()
         self._thread.write_fpu(self._ops.convert_to_byte_string(fpu, for_exe=True))
