@@ -6,12 +6,9 @@
 
 UNAME_M := $(shell uname -m)
 
-# Optionally overridden on the `test` target to run a single example.
-EXAMPLE :=
-
 .PHONY: all
 all:
-	@echo "Run my targets individually! (dev, format, lint, test, build, cpp, bootstrap, clean)"
+	@echo "Run my targets individually! (dev, format, lint, test, demo, build, cpp, bootstrap, clean)"
 
 .PHONY: dev
 dev:
@@ -34,7 +31,7 @@ lint:
 	uv sync --frozen --no-install-project --group dev
 	uv run --no-sync ruff format --check . && \
 		uv run --no-sync ruff check . && \
-		uv run --no-sync ty check microx examples
+		uv run --no-sync ty check microx examples tests
 
 # ---- Build ----
 .PHONY: build
@@ -47,23 +44,22 @@ cpp:
 	cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 	cmake --build build --parallel
 
-# ---- Smoke tests (there is no unit-test suite; the examples are the tests) ----
-# Runs the examples appropriate for the host architecture through the built
-# extension.
+# ---- Tests (pytest; the arch-specific tests auto-skip on the wrong host) ----
 .PHONY: test
 test:
+	uv sync --frozen --group dev
+	uv run --no-sync pytest
+
+# ---- Demo scripts (illustrative end-to-end usage; run any directly with
+# `uv run python examples/<name>.py`). Runs the host-appropriate ones. ----
+.PHONY: demo
+demo:
 	uv sync --frozen --no-dev
-ifneq ($(EXAMPLE),)
-	uv run --no-sync python examples/$(EXAMPLE)
-else ifneq (,$(filter $(UNAME_M),arm64 aarch64))
+ifneq (,$(filter $(UNAME_M),arm64 aarch64))
 	uv run --no-sync python examples/example_arm64.py
 	uv run --no-sync python examples/fuzz_arm64.py
 else
-	uv run --no-sync python examples/example.py
 	uv run --no-sync python examples/example_x64.py
-	uv run --no-sync python examples/example_rep.py
-	uv run --no-sync python examples/example_tsc.py
-	uv run --no-sync python examples/example_punpckhdq.py
 endif
 
 .PHONY: clean

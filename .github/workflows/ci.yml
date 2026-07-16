@@ -64,8 +64,10 @@ jobs:
       - name: build XED (x86 hosts only)
         if: runner.arch == 'X64'
         run: make bootstrap
-      - name: build + run the example smoke tests
+      - name: build + run the test suite (pytest)
         run: make test
+      - name: run the demo scripts
+        run: make demo
 
   wheels:
     strategy:

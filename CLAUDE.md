@@ -44,7 +44,7 @@ cmake --build build             # links XED (x86) or fetched Capstone (arm64)
 
 ## Formatting & lint
 
-`make format` runs `ruff format` then `ruff check --fix`; `make lint` runs `ruff format --check`, `ruff check`, and `ty check microx examples`. Both do `uv sync --frozen` first, so the hooks never rewrite `uv.lock`.
+`make format` runs `ruff format` then `ruff check --fix`; `make lint` runs `ruff format --check`, `ruff check`, and `ty check microx examples tests`. Both do `uv sync --frozen` first, so the hooks never rewrite `uv.lock`.
 
 `prek` (or `pre-commit`) runs the full hook set in `.pre-commit-config.yaml`:
 
@@ -57,7 +57,9 @@ prek run --all-files   # builtin hygiene, ruff + ty (via the make format/lint ho
 
 ## Testing
 
-There is no formal test suite. The scripts in `examples/` are runnable smoke tests (per host arch: `examples/example.py`/`example_x64.py` on x86, `examples/example_arm64.py` on arm64). `examples/fuzz_arm64.py` is a differential/fuzz harness for the AArch64 backend. They need the built `microx_core` extension importable (`uv sync`). `make test` builds the extension and runs the host-appropriate examples (`example_arm64.py` + `fuzz_arm64.py` on arm64; the x86 examples otherwise); `make test EXAMPLE=name.py` runs a single one. CI's `lint`, `cpp`, and `test` jobs invoke `make`, and the wheels job builds/audits the abi3 wheels per architecture.
+Tests live in `tests/` and run with **pytest** (`make test`, or `uv run pytest`). Because microx executes instructions natively, the arch-specific modules auto-skip on the wrong host: `tests/test_arm64.py` runs only on arm64, `tests/test_x86.py` only on x86-64. They import the built `microx_core` extension (`uv sync`); cibuildwheel runs the same suite against each built wheel.
+
+The `examples/` directory keeps a few runnable **demo** scripts showcasing end-to-end usage (`make demo`, or `uv run python examples/<name>.py`): `example_x64.py` (x86-64), `example_arm64.py` (arm64 + NEON), and `fuzz_arm64.py` (a differential/fuzz soak for the AArch64 backend). CI's `test` job runs `make test` then `make demo`, and the `wheels` job builds/audits the abi3 wheels per architecture.
 
 ## Architecture
 

@@ -20,7 +20,7 @@ Homepage = "https://github.com/lifting-bits/microx"
 # group resolves across the full supported Python range (cibuildwheel needs
 # >=3.11 while microx supports >=3.10).
 [dependency-groups]
-dev = ["ruff>=0.15", "ty>=0.0.59"]
+dev = ["ruff>=0.15", "ty>=0.0.59", "pytest>=8"]
 
 # ---- build backend (scikit-build-core drives CMake) ----
 # IMPORTANT: build abi3 wheels with the *floor* interpreter (Python 3.10).
@@ -60,6 +60,7 @@ include = [
   "microx_core.pyi",
   "scripts",
   "examples",
+  "tests",
   "README.md",
   "LICENSE",
 ]
@@ -87,12 +88,20 @@ exclude = ["third_party", "godefroid"]
 # duck-typed overrides, not errors.
 invalid-method-override = "ignore"
 
+# ---- tests ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 # ---- wheels ----
+# Each wheel is tested against the built extension with the full pytest suite;
+# the arch-specific tests auto-skip on the wrong host.
 [tool.cibuildwheel]
 build = "cp310-*"                       # one abi3 wheel per platform
 skip = "*-musllinux*"
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
+test-requires = ["pytest"]
+test-command = "pytest {package}/tests"
 
 [tool.cibuildwheel.macos.environment]
 MACOSX_DEPLOYMENT_TARGET = "11.0"
@@ -101,17 +110,7 @@ MACOSX_DEPLOYMENT_TARGET = "11.0"
 [[tool.cibuildwheel.overrides]]
 select = "*-manylinux_x86_64"
 before-all = "PYTHON=/opt/python/cp310-cp310/bin/python {package}/scripts/bootstrap.sh"
-test-command = "python {package}/examples/example_x64.py && python {package}/examples/example.py"
 
 [[tool.cibuildwheel.overrides]]
 select = "*-macosx_x86_64"
 before-all = "{package}/scripts/bootstrap.sh"
-test-command = "python {package}/examples/example_x64.py && python {package}/examples/example.py"
-
-[[tool.cibuildwheel.overrides]]
-select = "*-manylinux_aarch64"
-test-command = "python {package}/examples/example_arm64.py"
-
-[[tool.cibuildwheel.overrides]]
-select = "*-macosx_arm64"
-test-command = "python {package}/examples/example_arm64.py"
