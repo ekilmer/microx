@@ -90,14 +90,17 @@ def fuzz(count, seed):
             run_one(word)
             executed += 1
         except microx.MicroxError:
+            # microx cleanly refused the word: an unsupported/rejected
+            # instruction, a decode/fetch error, or a memory-permission error
+            # (MemoryAccessException subclasses MicroxError, so it lands here).
             rejected += 1
         except Exception:
-            # A clean Python exception (e.g. a memory-permission error) is fine;
-            # the point is the host process must survive every word.
+            # A non-microx, host-level Python exception. The only invariant that
+            # matters is that the host process survives every word.
             faulted += 1
     print(
         f"  fuzz: {count} words -> {executed} executed, "
-        f"{rejected} rejected/faulted (microx), {faulted} other; host survived"
+        f"{rejected} rejected (microx), {faulted} other; host survived"
     )
     return True
 
