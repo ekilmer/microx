@@ -1027,16 +1027,22 @@ class AArch64Backend final : public Backend {
       case AARCH64_INS_CBZ:
       case AARCH64_INS_CBNZ: {
         int reg_idx = 0;
+        uint64_t mask = ~0ull;
         uint64_t target = 0;
         for (uint8_t i = 0; i < a.op_count; ++i) {
           if (AARCH64_OP_REG == a.operands[i].type) {
             const Canon c = Canonicalize(a.operands[i].reg);
-            if (Kind::kGpr == c.kind) reg_idx = c.idx;
+            if (Kind::kGpr == c.kind) {
+              reg_idx = c.idx;
+              // The W-register form (`cbz w0, …`) tests only the low 32 bits.
+              const char* nm = cs_reg_name(gHandle, a.operands[i].reg);
+              if (nm && 'w' == nm[0]) mask = 0xFFFFFFFFull;
+            }
           } else if (AARCH64_OP_IMM == a.operands[i].type) {
             target = static_cast<uint64_t>(a.operands[i].imm);
           }
         }
-        const bool is_zero = (ReadCondReg(reg_idx) == 0);
+        const bool is_zero = ((ReadCondReg(reg_idx) & mask) == 0);
         const bool take = (AARCH64_INS_CBZ == gInsn->id) ? is_zero : !is_zero;
         if (take) next_pc = target;
         return true;

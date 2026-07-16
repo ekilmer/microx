@@ -280,3 +280,24 @@ def test_plain_simd_load_still_works():
     store_program(code, [0x3DC00000])  # ldr q0, [x0]
     t = run(ops, mem, regs={"X0": RW + 0x100})
     assert t.read_register("V0", t.REG_HINT_NONE) == int.from_bytes(payload, "little")
+
+
+@pytest.mark.parametrize(
+    ("word", "x0", "expected_pc"),
+    [
+        # cbz  w0, .+8 : W0 == 0 despite high bits set -> branch taken
+        (0x34000040, 0x1_0000_0000, 0x1008),
+        # cbz  x0, .+8 : X0 != 0 -> not taken
+        (0xB4000040, 0x1_0000_0000, 0x1004),
+        # cbnz w0, .+8 : W0 == 0 -> not taken
+        (0x35000040, 0x1_0000_0000, 0x1004),
+    ],
+    ids=["cbz_w_high_bits", "cbz_x_nonzero", "cbnz_w_high_bits"],
+)
+def test_cbz_cbnz_respect_register_width(word, x0, expected_pc):
+    """CBZ/CBNZ W-forms compare only the low 32 bits of the register."""
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [word])
+    t = run(ops, mem, regs={"X0": x0})
+    assert t.read_register("PC", t.REG_HINT_PROGRAM_COUNTER) == expected_pc
