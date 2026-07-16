@@ -90,6 +90,7 @@ Four layers, from bottom to top:
 ## Known AArch64 v1 limitations
 
 - SVE/SME/PAC/MTE, exclusive monitors (LDXR/STXR), and LSE atomics are rejected with `UnsupportedError`.
+- NEON load/store of multiple/single structures (`LD1`–`LD4`/`ST1`–`ST4`, incl. `LD1R` and lane forms) are rejected; single-register vector loads/stores via `LDR`/`STR`/`LDP`/`STP` are supported.
 - SP as a *data* operand (e.g. `add sp, sp, #16`) is rejected; SP as a memory *base* (including pre/post-index writeback) is supported.
 - The Capstone dependency is pinned to a `next` commit (v6 alpha); bump deliberately.
 

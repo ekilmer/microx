@@ -244,3 +244,39 @@ def test_micro_execution_preserves_host_fpcr(read_host_fpcr):
     store_program(code, [0x1E212820])  # fadd s0, s1, s1
     run(ops, mem, regs={"V1": 0x00000001, "FPCR": before ^ (1 << 24)})
     assert read_host_fpcr() == before
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        0x4C407000,  # ld1  {v0.16b}, [x0]
+        0x4C40A000,  # ld1  {v0.16b, v1.16b}, [x0]
+        0x4C408000,  # ld2  {v0.16b, v1.16b}, [x0]
+        0x4C007000,  # st1  {v0.16b}, [x0]
+        0x4CDF7000,  # ld1  {v0.16b}, [x0], #16   (post-index)
+        0x4D40C000,  # ld1r {v0.16b}, [x0]
+    ],
+    ids=["ld1", "ld1_2reg", "ld2", "st1", "ld1_postidx", "ld1r"],
+)
+def test_simd_structure_load_store_rejected(word):
+    """LD1-LD4/ST1-ST4 structure loads/stores are out of v1 scope; reject cleanly.
+
+    (Patching their base register would otherwise corrupt the opcode field and
+    silently run a different instruction.)
+    """
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [word])
+    with pytest.raises(microx.UnsupportedError):
+        run(ops, mem, regs={"X0": RW + 0x100})
+
+
+def test_plain_simd_load_still_works():
+    """A regular vector load (LDR Q, not a structure load) stays supported."""
+    ops = microx.Operations()
+    mem, code, _ro, rw = build_memory(ops)
+    payload = bytes(range(1, 17))
+    rw.store_bytes(RW + 0x100, payload)
+    store_program(code, [0x3DC00000])  # ldr q0, [x0]
+    t = run(ops, mem, regs={"X0": RW + 0x100})
+    assert t.read_register("V0", t.REG_HINT_NONE) == int.from_bytes(payload, "little")

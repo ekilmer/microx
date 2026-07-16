@@ -294,6 +294,25 @@ static bool IsRejectedInstruction(void) {
   return false;
 }
 
+// Advanced SIMD load/store of multiple or single structures (LD1-LD4 / ST1-ST4
+// and the replicate/lane forms). These span a large space of element
+// arrangements, register counts, de-interleaving, and pre/post-index writeback
+// that the single-operand memory-staging path does not model, so reject them
+// rather than mis-execute (the base-register rewrite would also corrupt their
+// opcode field). Detected by the encoding's op0 (bits [29:24]): 0b001100 =
+// load/store multiple structures, 0b001101 = single structures.
+static bool IsSimdLoadStoreStructure(void) {
+  const uint32_t word = static_cast<uint32_t>(gInsn->bytes[0]) |
+                        (static_cast<uint32_t>(gInsn->bytes[1]) << 8) |
+                        (static_cast<uint32_t>(gInsn->bytes[2]) << 16) |
+                        (static_cast<uint32_t>(gInsn->bytes[3]) << 24);
+  if ((word >> 31) & 1u) {
+    return false;  // bit[31] is 0 for this encoding group.
+  }
+  const uint32_t op0 = (word >> 24) & 0x3Fu;
+  return op0 == 0x0Cu || op0 == 0x0Du;
+}
+
 // --- Memory access-size table
 // -------------------------------------------------
 
@@ -505,6 +524,9 @@ class AArch64Backend final : public Backend {
       return ExecutorStatus::kErrorUnsupportedFeatures;
     }
     if (IsRejectedInstruction() || HasSveOrSmeOperand()) {
+      return ExecutorStatus::kErrorUnsupportedFeatures;
+    }
+    if (IsSimdLoadStoreStructure()) {
       return ExecutorStatus::kErrorUnsupportedFeatures;
     }
 
