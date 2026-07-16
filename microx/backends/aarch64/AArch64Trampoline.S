@@ -20,11 +20,13 @@
  * `microx_arm64_enter(State *state)` (x0 = state) saves the host's
  * callee-saved registers — x19..x28, the frame pointer x29, the link register
  * x30, the reserved platform register x18, and the low 64 bits of the
- * callee-saved SIMD registers v8..v15 (required by the AArch64 PCS) — then
- * branches into the generated arena at `state->arena_entry`, passing `state`
- * in x10. The arena loads the guest register file, runs the single guest
- * instruction, stores the results back, and branches to `state->ret_addr`,
- * which is `microx_arm64_return`. That path restores the host registers and
+ * callee-saved SIMD registers v8..v15 (required by the AArch64 PCS) — plus the
+ * host FPCR, a global control register the arena overwrites with the guest's
+ * (FPSR/NZCV are caller-saved, so they need no save). It then branches into the
+ * generated arena at `state->arena_entry`, passing `state` in x10. The arena
+ * loads the guest register file, runs the single guest instruction, stores the
+ * results back, and branches to `state->ret_addr`, which is
+ * `microx_arm64_return`. That path restores the host registers (and FPCR) and
  * returns.
  *
  * The real stack pointer is never loaded with the guest SP (the arena aliases
@@ -61,6 +63,10 @@ SYM(microx_arm64_enter):
     stp d14, d15, [sp, #144]
     /* x18 is the reserved platform register; preserve it across the call. */
     str x18, [sp, #160]
+    /* The arena installs the guest FPCR; save the host's so we can restore it
+     * (FPCR is a global control register that must survive the call). */
+    mrs x9, fpcr
+    str x9, [sp, #168]
 
     mov x10, x0                     /* x10 = state (passed to the arena) */
     ldr x9, [x0, #MICROX_ST_ARENA]  /* x9  = arena entry */
@@ -68,6 +74,10 @@ SYM(microx_arm64_enter):
 
 SYM(microx_arm64_return):
     bti j
+    /* Restore the host FPCR the arena clobbered (isb so the host sees it). */
+    ldr x9, [sp, #168]
+    msr fpcr, x9
+    isb
     ldr x18, [sp, #160]
     ldp x19, x20, [sp]
     ldp x21, x22, [sp, #16]

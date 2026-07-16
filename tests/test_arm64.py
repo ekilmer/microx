@@ -4,7 +4,13 @@ microx executes instructions natively, so these run only on an arm64 host; on
 any other host the whole module is skipped.
 """
 
+import ctypes
 import random
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -201,3 +207,40 @@ def test_random_words_do_not_crash_the_host():
             pass  # any clean Python exception is acceptable; the host must survive
     # Sanity: at least some random words decode to supported instructions.
     assert executed > 0
+
+
+@pytest.fixture(scope="module")
+def read_host_fpcr():
+    """Compile a tiny helper that reads the host FPCR system register (EL0)."""
+    cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if cc is None:
+        pytest.skip("no C compiler available to build the FPCR probe")
+    tmp = Path(tempfile.mkdtemp())
+    src = tmp / "fpcr.c"
+    lib = tmp / ("libfpcr.dylib" if sys.platform == "darwin" else "libfpcr.so")
+    src.write_text(
+        "#include <stdint.h>\n"
+        "uint64_t read_fpcr(void) {\n"
+        "  uint64_t v;\n"
+        '  __asm__ volatile("mrs %0, fpcr" : "=r"(v));\n'
+        "  return v;\n"
+        "}\n"
+    )
+    subprocess.run([cc, "-shared", "-O2", "-o", str(lib), str(src)], check=True)
+    dll = ctypes.CDLL(str(lib))
+    dll.read_fpcr.restype = ctypes.c_uint64
+    return dll.read_fpcr
+
+
+def test_micro_execution_preserves_host_fpcr(read_host_fpcr):
+    """An FP micro-exec installs the guest FPCR; the host's must be restored.
+
+    The guest FPCR is chosen to differ from the host's current value, so a
+    leak would change the observed host FPCR regardless of test ordering.
+    """
+    before = read_host_fpcr()
+    ops = microx.Operations()
+    mem, code, _ro, _rw = build_memory(ops)
+    store_program(code, [0x1E212820])  # fadd s0, s1, s1
+    run(ops, mem, regs={"V1": 0x00000001, "FPCR": before ^ (1 << 24)})
+    assert read_host_fpcr() == before
